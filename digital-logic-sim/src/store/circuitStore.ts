@@ -141,10 +141,21 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
     // 更新输入值
     set((state) => {
       const gates = state.circuit.gates.map((g) => {
-        if (g.id === gateId && g.inputs[inputIndex]) {
-          const newInputs = [...g.inputs];
-          newInputs[inputIndex] = { ...newInputs[inputIndex], value };
-          return { ...g, inputs: newInputs };
+        if (g.id === gateId) {
+          // 如果是 INPUT 门，同时更新输入和输出（用于手动切换）
+          if (g.gateDefId === 'input' && g.inputs[inputIndex]) {
+            const newInputs = [...g.inputs];
+            newInputs[inputIndex] = { ...newInputs[inputIndex], value };
+            const newOutputs = g.outputs.map(pin => ({ ...pin, value }));
+            return { ...g, inputs: newInputs, outputs: newOutputs };
+          }
+
+          // 其他门：更新输入引脚
+          if (g.inputs[inputIndex]) {
+            const newInputs = [...g.inputs];
+            newInputs[inputIndex] = { ...newInputs[inputIndex], value };
+            return { ...g, inputs: newInputs };
+          }
         }
         return g;
       });
@@ -226,6 +237,12 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
         );
 
         if (!gateDef || gateDef.type === 'sequential') return gate;
+
+        // CLOCK 和 INPUT 门作为信号源，输出值由 clockStep 直接设置，不需要重新计算
+        // 它们的输出值已经在 clockStep 中正确设置了
+        if (gate.gateDefId === 'clock' || gate.gateDefId === 'input') {
+          return gate;
+        }
 
         const inputValues = gate.inputs.map(pin => pin.value);
         const outputValues = gateDef.compute(inputValues);
@@ -379,17 +396,42 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
     const { circuit } = get();
     const currentStep = circuit.clockStep || 0;
 
-    // 更新所有有序列的 INPUT 门的值
+    // 检查是否已达到序列长度限制（检查 INPUT 门和 CLOCK 门）
+    const sequenceGates = circuit.gates.filter(g =>
+      (g.gateDefId === 'input' || g.gateDefId === 'clock') && g.sequence
+    );
+    const maxLength = Math.max(...sequenceGates.map(g => g.sequence?.length || 0), 0);
+
+    if (maxLength > 0 && currentStep >= maxLength) {
+      // 已经执行完所有序列，不再继续
+      return;
+    }
+
+    // 先递增 clockStep，然后根据新的步数更新 INPUT 门和 CLOCK 门
+    const newStep = currentStep + 1;
+
+    // 更新所有有序列的 INPUT 门和 CLOCK 门的值
     const updatedGates = circuit.gates.map((gate) => {
-      if (gate.gateDefId === 'input' && gate.sequence && gate.sequence.length > 0) {
-        const bitIndex = currentStep % gate.sequence.length;
+      if ((gate.gateDefId === 'input' || gate.gateDefId === 'clock') &&
+          gate.sequence && gate.sequence.length > 0) {
+        // newStep=1 对应 sequence[0]，newStep=2 对应 sequence[1]，以此类推
+        const bitIndex = (newStep - 1) % gate.sequence.length;
         const bitValue = gate.sequence[bitIndex] === '1' ? 1 : 0;
 
-        return {
-          ...gate,
-          inputs: gate.inputs.map(pin => ({ ...pin, value: bitValue as BitValue })),
-          outputs: gate.outputs.map(pin => ({ ...pin, value: bitValue as BitValue })),
-        };
+        if (gate.gateDefId === 'clock') {
+          // CLOCK 门只有输出
+          return {
+            ...gate,
+            outputs: gate.outputs.map(pin => ({ ...pin, value: bitValue as BitValue })),
+          };
+        } else {
+          // INPUT 门有输入和输出，都需要更新
+          return {
+            ...gate,
+            inputs: gate.inputs.map(pin => ({ ...pin, value: bitValue as BitValue })),
+            outputs: gate.outputs.map(pin => ({ ...pin, value: bitValue as BitValue })),
+          };
+        }
       }
       return gate;
     });
@@ -398,7 +440,7 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
       circuit: {
         ...circuit,
         gates: updatedGates,
-        clockStep: currentStep + 1,
+        clockStep: newStep,
       },
     });
 
@@ -416,10 +458,15 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
       const { circuit } = get();
       const currentStep = circuit.clockStep || 0;
 
-      // 检查是否所有INPUT门都已完成序列
-      const inputGates = circuit.gates.filter(g => g.gateDefId === 'input' && g.sequence);
-      const maxLength = Math.max(...inputGates.map(g => g.sequence?.length || 0), 0);
+      // 检查是否所有序列门（INPUT 和 CLOCK）都已完成序列
+      const sequenceGates = circuit.gates.filter(g =>
+        (g.gateDefId === 'input' || g.gateDefId === 'clock') && g.sequence
+      );
+      const maxLength = Math.max(...sequenceGates.map(g => g.sequence?.length || 0), 0);
 
+      // 如果当前步数已达到序列长度，停止播放
+      // clockStep=0: 初始状态
+      // clockStep=maxLength: 执行完最后一个边沿
       if (maxLength > 0 && currentStep >= maxLength) {
         // 所有序列已完成，自动停止
         get().stopPlaying();
@@ -442,14 +489,46 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
 
   resetClock: () => {
     get().stopPlaying();
-    set((state) => ({
+
+    const { circuit } = get();
+
+    // 重置时钟步数，所有有序列的 INPUT 门和 CLOCK 门回到空闲状态（根据首位信号的反向）
+    const updatedGates = circuit.gates.map((gate) => {
+      if ((gate.gateDefId === 'input' || gate.gateDefId === 'clock') &&
+          gate.sequence && gate.sequence.length > 0) {
+        // 空闲状态是首位信号的反向
+        // 如果 sequence[0] = '1'（需要上升沿），则空闲为 0
+        // 如果 sequence[0] = '0'（需要下降沿），则空闲为 1
+        const idleValue = gate.sequence[0] === '1' ? 0 : 1;
+
+        if (gate.gateDefId === 'clock') {
+          // CLOCK 门只有输出
+          return {
+            ...gate,
+            outputs: gate.outputs.map(pin => ({ ...pin, value: idleValue as BitValue })),
+          };
+        } else {
+          // INPUT 门有输入和输出，都需要更新
+          return {
+            ...gate,
+            inputs: gate.inputs.map(pin => ({ ...pin, value: idleValue as BitValue })),
+            outputs: gate.outputs.map(pin => ({ ...pin, value: idleValue as BitValue })),
+          };
+        }
+      }
+      return gate;
+    });
+
+    set({
       circuit: {
-        ...state.circuit,
+        ...circuit,
+        gates: updatedGates,
         clockStep: 0,
       },
-    }));
-    // 重置所有INPUT门到序列的第一个值
-    get().clockStep();
+    });
+
+    // 触发仿真
+    get().runSimulation();
   },
 
   setPlaySpeed: (speed: number) => {

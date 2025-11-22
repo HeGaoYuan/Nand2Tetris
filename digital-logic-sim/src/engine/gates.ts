@@ -108,10 +108,11 @@ export const INPUT_GATE: GateDefinition = {
   id: 'input',
   name: 'INPUT',
   type: 'io',
-  inputs: [createPin('in')],
+  inputs: [createPin('in')],  // INPUT 门可以接收来自其他门的信号
   outputs: [createPin('out')],
   compute: (inputs: BitValue[]) => {
-    return [inputs[0]]; // 直接传递输入值
+    // 直接传递输入值到输出
+    return [inputs[0]];
   },
 };
 
@@ -127,6 +128,19 @@ export const OUTPUT_GATE: GateDefinition = {
   },
 };
 
+// 特殊门：时钟信号源（可配置序列的信号发生器）
+export const CLOCK_GATE: GateDefinition = {
+  id: 'clock',
+  name: 'CLOCK',
+  type: 'io',
+  inputs: [],  // 无输入，只输出
+  outputs: [createPin('out')],
+  compute: () => {
+    // 信号值由时钟步进系统控制，这里只是占位
+    return [0];
+  },
+};
+
 // 所有基础门的集合
 export const BUILTIN_GATES: GateDefinition[] = [
   NAND_GATE,
@@ -139,7 +153,7 @@ export const BUILTIN_GATES: GateDefinition[] = [
 ];
 
 // IO门（用于芯片封装）
-export const IO_GATES: GateDefinition[] = [INPUT_GATE, OUTPUT_GATE];
+export const IO_GATES: GateDefinition[] = [INPUT_GATE, OUTPUT_GATE, CLOCK_GATE];
 
 // 所有门（包括基础门和IO门）
 export const ALL_GATES: GateDefinition[] = [...BUILTIN_GATES, ...IO_GATES];
