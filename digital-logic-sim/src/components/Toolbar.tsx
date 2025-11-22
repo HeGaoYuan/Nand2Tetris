@@ -2,6 +2,7 @@
 import React from 'react';
 import { useCircuitStore } from '../store/circuitStore';
 import { ChipPackageDialog } from './ChipPackageDialog';
+import { ChipManagement } from './ChipManagement';
 
 export const Toolbar: React.FC = () => {
   const {
@@ -79,6 +80,9 @@ export const Toolbar: React.FC = () => {
           >
             📦 封装芯片
           </button>
+
+          {/* 芯片管理组件 */}
+          <ChipManagement />
 
           {/* 时钟控制区 */}
           <div style={{

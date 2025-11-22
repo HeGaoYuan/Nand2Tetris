@@ -32,12 +32,161 @@ interface CircuitState {
   setPlaySpeed: (speed: number) => void; // 设置播放速度
   saveCustomGate: (name: string) => void;
   clearCircuit: () => void; // 清空画布
+  exportCustomGates: () => string; // 导出自定义芯片为 JSON 字符串
+  importCustomGates: (jsonData: string, mode: 'merge' | 'replace') => boolean; // 导入自定义芯片
+  clearCustomGates: () => void; // 清空自定义芯片库
+  deleteCustomGate: (gateId: string) => void; // 删除单个自定义芯片
 }
+
+// LocalStorage 键名
+const CUSTOM_GATES_STORAGE_KEY = 'nand2tetris-custom-gates';
+
+// 从 LocalStorage 加载自定义芯片（递归重建 compute 函数）
+const loadCustomGatesFromStorage = (): GateDefinition[] => {
+  try {
+    const saved = localStorage.getItem(CUSTOM_GATES_STORAGE_KEY);
+    if (!saved) return [];
+
+    const parsedGates = JSON.parse(saved) as Partial<GateDefinition>[];
+
+    // 递归重建所有芯片的 compute 函数
+    const rebuildGates = (gates: Partial<GateDefinition>[]): GateDefinition[] => {
+      const rebuilt: GateDefinition[] = [];
+
+      for (const gate of gates) {
+        if (!gate.internalCircuit) {
+          // 不应该发生，跳过
+          console.warn('自定义芯片缺少 internalCircuit:', gate.name);
+          continue;
+        }
+
+        // 重建 compute 函数
+        const compute = createComputeFunction(gate.internalCircuit, rebuilt);
+
+        rebuilt.push({
+          id: gate.id!,
+          name: gate.name!,
+          type: gate.type!,
+          inputs: gate.inputs!,
+          outputs: gate.outputs!,
+          internalCircuit: gate.internalCircuit,
+          compute,
+        });
+      }
+
+      return rebuilt;
+    };
+
+    return rebuildGates(parsedGates);
+  } catch (error) {
+    console.error('加载自定义芯片失败:', error);
+  }
+  return [];
+};
+
+// 保存自定义芯片到 LocalStorage
+const saveCustomGatesToStorage = (customGates: GateDefinition[]) => {
+  try {
+    // 序列化时需要排除 compute 函数，只保存可序列化的数据
+    const serializableGates = customGates.map(gate => ({
+      id: gate.id,
+      name: gate.name,
+      type: gate.type,
+      inputs: gate.inputs,
+      outputs: gate.outputs,
+      internalCircuit: gate.internalCircuit, // 保存电路结构
+      // compute 函数不保存
+    }));
+    localStorage.setItem(CUSTOM_GATES_STORAGE_KEY, JSON.stringify(serializableGates));
+  } catch (error) {
+    console.error('保存自定义芯片失败:', error);
+  }
+};
+
+// 从电路结构重建 compute 函数
+const createComputeFunction = (
+  internalCircuit: {
+    gates: GateInstance[];
+    wires: Wire[];
+    inputGateIds: string[];
+    outputGateIds: string[];
+  },
+  allCustomGates: GateDefinition[]
+): ((inputs: BitValue[]) => BitValue[]) => {
+  return (inputs: BitValue[]): BitValue[] => {
+    // 创建一个内部电路副本来模拟
+    const internalGates = internalCircuit.gates.map(g => {
+      if (g.gateDefId === 'input') {
+        // 将输入值传递给INPUT门
+        const inputIndex = internalCircuit.inputGateIds.indexOf(g.id);
+        return {
+          ...g,
+          inputs: g.inputs.map(pin => ({ ...pin, value: inputs[inputIndex] || 0 })),
+          outputs: g.outputs.map(pin => ({ ...pin, value: inputs[inputIndex] || 0 })),
+        };
+      }
+      return { ...g };
+    });
+
+    // 运行模拟（简化版 - 最多10次迭代）
+    for (let iteration = 0; iteration < 10; iteration++) {
+      let changed = false;
+
+      // 沿着连线传播信号
+      internalCircuit.wires.forEach(wire => {
+        const fromGate = internalGates.find(g => g.id === wire.from.gateId);
+        const toGate = internalGates.find(g => g.id === wire.to.gateId);
+
+        if (!fromGate || !toGate) return;
+
+        const outputPin = fromGate.outputs.find(p => p.id === wire.from.pinId);
+        const inputPinIndex = toGate.inputs.findIndex(p => p.id === wire.to.pinId);
+
+        if (outputPin && inputPinIndex >= 0) {
+          const currentValue = toGate.inputs[inputPinIndex].value;
+          if (currentValue !== outputPin.value) {
+            toGate.inputs[inputPinIndex] = { ...toGate.inputs[inputPinIndex], value: outputPin.value };
+            changed = true;
+          }
+        }
+      });
+
+      // 计算所有门的输出
+      internalGates.forEach(gate => {
+        if (gate.gateDefId === 'input' || gate.gateDefId === 'output') return;
+
+        const gateDef = [...ALL_GATES, ...allCustomGates].find(
+          def => def.id === gate.gateDefId
+        );
+
+        if (!gateDef || gateDef.type === 'sequential') return;
+
+        const inputValues = gate.inputs.map(pin => pin.value) as BitValue[];
+        const outputValues = gateDef.compute(inputValues);
+
+        outputValues.forEach((val, idx) => {
+          if (gate.outputs[idx] && gate.outputs[idx].value !== val) {
+            gate.outputs[idx] = { ...gate.outputs[idx], value: val as BitValue };
+            changed = true;
+          }
+        });
+      });
+
+      if (!changed) break;
+    }
+
+    // 提取OUTPUT门的值作为结果
+    return internalCircuit.outputGateIds.map(outputGateId => {
+      const gate = internalGates.find(g => g.id === outputGateId);
+      return (gate?.inputs[0]?.value || 0) as BitValue;
+    });
+  };
+};
 
 const initialCircuit: Circuit = {
   gates: [],
   wires: [],
-  customGates: [],
+  customGates: loadCustomGatesFromStorage(), // 从 LocalStorage 加载
   clockStep: 0,
 };
 
@@ -297,6 +446,14 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
       return;
     }
 
+    // 保存内部电路结构（用于序列化）
+    const internalCircuit = {
+      gates: circuit.gates.map(g => ({ ...g })), // 深拷贝
+      wires: circuit.wires.map(w => ({ ...w })), // 深拷贝
+      inputGateIds: inputGates.map(g => g.id),
+      outputGateIds: outputGates.map(g => g.id),
+    };
+
     // 创建新的门定义，使用自定义标签作为引脚名称
     const newGateDef: GateDefinition = {
       id: `custom-${crypto.randomUUID()}`,
@@ -312,6 +469,7 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
         name: gate.label || `out${i}`,
         value: 0 as BitValue,
       })),
+      internalCircuit, // 保存电路结构
       compute: (inputs: BitValue[]): BitValue[] => {
         // 创建一个内部电路副本来模拟
         const internalGates = circuit.gates.map(g => {
@@ -383,12 +541,17 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
     };
 
     // 添加到自定义门列表
-    set(state => ({
-      circuit: {
-        ...state.circuit,
-        customGates: [...state.circuit.customGates, newGateDef],
-      },
-    }));
+    set(state => {
+      const updatedGates = [...state.circuit.customGates, newGateDef];
+      // 自动保存到 LocalStorage
+      saveCustomGatesToStorage(updatedGates);
+      return {
+        circuit: {
+          ...state.circuit,
+          customGates: updatedGates,
+        },
+      };
+    });
 
     console.log('自定义芯片已封装:', name);
   },
@@ -556,5 +719,81 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
       simulator: null,
       selectedGateId: null,
     }));
+  },
+
+  exportCustomGates: () => {
+    const { circuit } = get();
+    return JSON.stringify(circuit.customGates, null, 2);
+  },
+
+  importCustomGates: (jsonData: string, mode: 'merge' | 'replace') => {
+    try {
+      const importedGates = JSON.parse(jsonData) as GateDefinition[];
+
+      // 验证数据格式
+      if (!Array.isArray(importedGates)) {
+        console.error('导入失败: 数据格式不正确');
+        return false;
+      }
+
+      set(state => {
+        let updatedGates: GateDefinition[];
+
+        if (mode === 'replace') {
+          // 替换模式：完全替换现有芯片
+          updatedGates = importedGates;
+        } else {
+          // 合并模式：保留现有芯片，添加新芯片（避免ID冲突）
+          const existingIds = new Set(state.circuit.customGates.map(g => g.id));
+          const newGates = importedGates.filter(g => !existingIds.has(g.id));
+          updatedGates = [...state.circuit.customGates, ...newGates];
+        }
+
+        // 保存到 LocalStorage
+        saveCustomGatesToStorage(updatedGates);
+
+        return {
+          circuit: {
+            ...state.circuit,
+            customGates: updatedGates,
+          },
+        };
+      });
+
+      console.log('导入成功:', mode === 'replace' ? '替换模式' : '合并模式');
+      return true;
+    } catch (error) {
+      console.error('导入失败:', error);
+      return false;
+    }
+  },
+
+  clearCustomGates: () => {
+    set(state => {
+      // 清空自定义芯片库
+      saveCustomGatesToStorage([]);
+      return {
+        circuit: {
+          ...state.circuit,
+          customGates: [],
+        },
+      };
+    });
+    console.log('自定义芯片库已清空');
+  },
+
+  deleteCustomGate: (gateId: string) => {
+    set(state => {
+      const updatedGates = state.circuit.customGates.filter(g => g.id !== gateId);
+      // 保存到 LocalStorage
+      saveCustomGatesToStorage(updatedGates);
+      return {
+        circuit: {
+          ...state.circuit,
+          customGates: updatedGates,
+        },
+      };
+    });
+    console.log('自定义芯片已删除:', gateId);
   },
 }));

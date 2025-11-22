@@ -15,6 +15,13 @@ export interface GateDefinition {
   inputs: Pin[];
   outputs: Pin[];
   compute: (inputs: BitValue[]) => BitValue[];
+  // 自定义芯片的内部电路结构（可序列化）
+  internalCircuit?: {
+    gates: GateInstance[];
+    wires: Wire[];
+    inputGateIds: string[];  // INPUT 门的ID列表（按顺序）
+    outputGateIds: string[]; // OUTPUT 门的ID列表（按顺序）
+  };
 }
 
 export interface GateInstance {

@@ -4,6 +4,7 @@ import type { GateInstance } from '../types/circuit';
 import { ALL_GATES } from '../engine/gates';
 import { useCircuitStore } from '../store/circuitStore';
 import { SequenceEditorDialog } from './SequenceEditorDialog';
+import { ChipInternalView } from './ChipInternalView';
 
 interface GateComponentProps {
   gate: GateInstance;
@@ -29,6 +30,8 @@ export const GateComponent: React.FC<GateComponentProps> = ({
   const [isEditingLabel, setIsEditingLabel] = React.useState(false);
   const [labelInput, setLabelInput] = React.useState(gate.label || '');
   const [isEditingSequence, setIsEditingSequence] = React.useState(false);
+  const [showInternalView, setShowInternalView] = React.useState(false);
+  const [contextMenu, setContextMenu] = React.useState<{ x: number; y: number } | null>(null);
   const { circuit, updateGateLabel, updateGateSequence } = useCircuitStore();
   const waveformContainerRef = React.useRef<HTMLDivElement>(null);
 
@@ -71,6 +74,29 @@ export const GateComponent: React.FC<GateComponentProps> = ({
       setLabelInput(gate.label || '');
     }
   };
+
+  const handleContextMenuClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // 只有自定义芯片才显示右键菜单
+    const isCustomGate = gateDef.type === 'custom' && gateDef.internalCircuit;
+    if (!isCustomGate) {
+      onContextMenu(e);
+      return;
+    }
+
+    setContextMenu({ x: e.clientX, y: e.clientY });
+  };
+
+  // 关闭右键菜单
+  React.useEffect(() => {
+    const handleClick = () => setContextMenu(null);
+    if (contextMenu) {
+      document.addEventListener('click', handleClick);
+      return () => document.removeEventListener('click', handleClick);
+    }
+  }, [contextMenu]);
 
   React.useEffect(() => {
     if (!isDragging) return;
@@ -135,7 +161,7 @@ export const GateComponent: React.FC<GateComponentProps> = ({
           userSelect: 'none',
         }}
         onMouseDown={handleMouseDown}
-        onContextMenu={onContextMenu}
+        onContextMenu={handleContextMenuClick}
       >
         {/* 图标区域 */}
         <div
@@ -696,7 +722,61 @@ export const GateComponent: React.FC<GateComponentProps> = ({
 
   // 普通门的渲染（横向布局：输入在左，输出在右）
   return (
-    <div
+    <>
+      {/* 右键菜单 */}
+      {contextMenu && (
+        <div
+          style={{
+            position: 'fixed',
+            left: `${contextMenu.x}px`,
+            top: `${contextMenu.y}px`,
+            backgroundColor: 'white',
+            border: '1px solid #d1d5db',
+            borderRadius: '6px',
+            boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+            zIndex: 1000,
+            minWidth: '180px',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowInternalView(true);
+              setContextMenu(null);
+            }}
+            style={{
+              width: '100%',
+              padding: '10px 16px',
+              backgroundColor: 'transparent',
+              border: 'none',
+              textAlign: 'left',
+              cursor: 'pointer',
+              fontSize: '14px',
+              color: '#1f2937',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f3f4f6')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+          >
+            🔍 查看内部实现
+          </button>
+        </div>
+      )}
+
+      {/* 内部视图对话框 */}
+      {showInternalView && gateDef.internalCircuit && (
+        <ChipInternalView
+          gateDef={gateDef}
+          currentInputs={gate.inputs.map((pin) => pin.value)}
+          customGates={circuit.customGates}
+          onClose={() => setShowInternalView(false)}
+        />
+      )}
+
+      <div
       style={{
         position: 'absolute',
         left: `${gate.position.x}px`,
@@ -714,7 +794,7 @@ export const GateComponent: React.FC<GateComponentProps> = ({
         alignItems: 'center',
       }}
       onMouseDown={handleMouseDown}
-      onContextMenu={onContextMenu}
+      onContextMenu={handleContextMenuClick}
     >
       {/* 左侧：输入引脚 */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', position: 'relative' }}>
@@ -842,5 +922,6 @@ export const GateComponent: React.FC<GateComponentProps> = ({
         ))}
       </div>
     </div>
+    </>
   );
 };

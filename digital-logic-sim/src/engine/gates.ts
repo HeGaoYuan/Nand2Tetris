@@ -21,87 +21,8 @@ export const NAND_GATE: GateDefinition = {
   },
 };
 
-// NOT门 (非门) - 由NAND实现
-export const NOT_GATE: GateDefinition = {
-  id: 'not',
-  name: 'NOT',
-  type: 'basic',
-  inputs: [createPin('in')],
-  outputs: [createPin('out')],
-  compute: (inputs: BitValue[]) => {
-    // NOT(x) = NAND(x, x)
-    const x = inputs[0];
-    return [x === 1 ? 0 : 1];
-  },
-};
-
-// AND门 (与门) - 由NAND实现
-export const AND_GATE: GateDefinition = {
-  id: 'and',
-  name: 'AND',
-  type: 'basic',
-  inputs: [createPin('a'), createPin('b')],
-  outputs: [createPin('out')],
-  compute: (inputs: BitValue[]) => {
-    // AND(a, b) = NOT(NAND(a, b))
-    const [a, b] = inputs;
-    return [a === 1 && b === 1 ? 1 : 0];
-  },
-};
-
-// OR门 (或门) - 由NAND实现
-export const OR_GATE: GateDefinition = {
-  id: 'or',
-  name: 'OR',
-  type: 'basic',
-  inputs: [createPin('a'), createPin('b')],
-  outputs: [createPin('out')],
-  compute: (inputs: BitValue[]) => {
-    // OR(a, b) = NAND(NOT(a), NOT(b))
-    const [a, b] = inputs;
-    return [a === 1 || b === 1 ? 1 : 0];
-  },
-};
-
-// XOR门 (异或门)
-export const XOR_GATE: GateDefinition = {
-  id: 'xor',
-  name: 'XOR',
-  type: 'basic',
-  inputs: [createPin('a'), createPin('b')],
-  outputs: [createPin('out')],
-  compute: (inputs: BitValue[]) => {
-    const [a, b] = inputs;
-    return [a !== b ? 1 : 0];
-  },
-};
-
-// MUX门 (多路复用器)
-export const MUX_GATE: GateDefinition = {
-  id: 'mux',
-  name: 'MUX',
-  type: 'basic',
-  inputs: [createPin('a'), createPin('b'), createPin('sel')],
-  outputs: [createPin('out')],
-  compute: (inputs: BitValue[]) => {
-    const [a, b, sel] = inputs;
-    return [sel === 0 ? a : b];
-  },
-};
-
-// DFF (D触发器/继位器) - 时序逻辑的基础
-export const DFF_GATE: GateDefinition = {
-  id: 'dff',
-  name: 'DFF',
-  type: 'sequential',
-  inputs: [createPin('d')],
-  outputs: [createPin('q')],
-  compute: (inputs: BitValue[]) => {
-    // DFF的实际行为需要在仿真引擎中处理时序
-    // 这里只是占位,真正的状态保存在仿真器中
-    return [inputs[0]];
-  },
-};
+// 其他所有门都应该通过 NAND 门来实现
+// 用户可以自己封装 NOT、AND、OR、XOR、MUX、DFF 等门
 
 // 特殊门：用于自定义芯片的输入
 export const INPUT_GATE: GateDefinition = {
@@ -141,15 +62,9 @@ export const CLOCK_GATE: GateDefinition = {
   },
 };
 
-// 所有基础门的集合
+// 所有基础门的集合 - 只保留 NAND 门
 export const BUILTIN_GATES: GateDefinition[] = [
   NAND_GATE,
-  NOT_GATE,
-  AND_GATE,
-  OR_GATE,
-  XOR_GATE,
-  MUX_GATE,
-  DFF_GATE,
 ];
 
 // IO门（用于芯片封装）
