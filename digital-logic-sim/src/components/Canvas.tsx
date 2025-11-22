@@ -218,6 +218,10 @@ export const Canvas: React.FC = () => {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // 检查是否在输入框中
+    const target = e.target as HTMLElement;
+    const isInputField = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+
     // Ctrl+C: 复制
     if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
       e.preventDefault();
@@ -364,6 +368,11 @@ export const Canvas: React.FC = () => {
 
     // Delete键删除选中的门或连线
     if (e.key === 'Delete' || e.key === 'Backspace') {
+      // 如果在输入框中，不删除门
+      if (isInputField) {
+        return;
+      }
+
       if (selectedGateId) {
         removeGate(selectedGateId);
         selectGate(null);
@@ -461,6 +470,24 @@ export const Canvas: React.FC = () => {
     };
   }, [isPanning]);
 
+  // 自动保存画布状态（每5秒）
+  React.useEffect(() => {
+    const autoSaveInterval = setInterval(() => {
+      try {
+        const serializableCircuit = {
+          gates: circuit.gates,
+          wires: circuit.wires,
+          clockStep: circuit.clockStep,
+        };
+        localStorage.setItem('nand2tetris-circuit-state', JSON.stringify(serializableCircuit));
+      } catch (error) {
+        console.error('自动保存失败:', error);
+      }
+    }, 5000); // 每5秒保存一次
+
+    return () => clearInterval(autoSaveInterval);
+  }, [circuit]);
+
   return (
     <div
       ref={canvasRef}
@@ -539,8 +566,25 @@ export const Canvas: React.FC = () => {
             key={gate.id}
             gate={gate}
             selected={gate.id === selectedGateId || isSelectedByBox}
+            selectedGateIds={selectedGateIds}
             onSelect={() => selectGate(gate.id)}
-            onMove={(position) => moveGate(gate.id, position)}
+            onMove={(position: { x: number; y: number }, delta?: { dx: number; dy: number }) => {
+              // 如果这个门是选中门列表中的一个，移动所有选中的门
+              if (delta && selectedGateIds.includes(gate.id)) {
+                selectedGateIds.forEach((gateId) => {
+                  const g = circuit.gates.find((gateItem) => gateItem.id === gateId);
+                  if (g) {
+                    moveGate(gateId, {
+                      x: g.position.x + delta.dx,
+                      y: g.position.y + delta.dy,
+                    });
+                  }
+                });
+              } else {
+                // 否则只移动这一个门
+                moveGate(gate.id, position);
+              }
+            }}
             onInputChange={(inputIndex, value) =>
               setGateInput(gate.id, inputIndex, value)
             }

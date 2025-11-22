@@ -9,8 +9,9 @@ import { ChipInternalView } from './ChipInternalView';
 interface GateComponentProps {
   gate: GateInstance;
   selected: boolean;
+  selectedGateIds?: string[]; // 所有选中的门ID列表
   onSelect: () => void;
-  onMove: (position: { x: number; y: number }) => void;
+  onMove: (position: { x: number; y: number }, delta?: { dx: number; dy: number }) => void;
   onInputChange: (inputIndex: number, value: 0 | 1) => void;
   onContextMenu: (e: React.MouseEvent) => void;
   onPinClick?: (gateId: string, pinId: string, isOutput: boolean) => void;
@@ -23,6 +24,7 @@ interface GateComponentProps {
 export const GateComponent: React.FC<GateComponentProps> = ({
   gate,
   selected,
+  selectedGateIds,
   onSelect,
   onMove,
   onInputChange,
@@ -32,6 +34,7 @@ export const GateComponent: React.FC<GateComponentProps> = ({
 }) => {
   const [isDragging, setIsDragging] = React.useState(false);
   const [dragStart, setDragStart] = React.useState({ x: 0, y: 0 });
+  const [lastPosition, setLastPosition] = React.useState({ x: 0, y: 0 }); // 记录上次位置
   const [isEditingLabel, setIsEditingLabel] = React.useState(false);
   const [labelInput, setLabelInput] = React.useState(gate.label || '');
   const [isEditingSequence, setIsEditingSequence] = React.useState(false);
@@ -94,8 +97,12 @@ export const GateComponent: React.FC<GateComponentProps> = ({
     e.stopPropagation();
     setIsDragging(true);
     setDragStart({
-      x: e.clientX - gate.position.x,
-      y: e.clientY - gate.position.y,
+      x: e.clientX,
+      y: e.clientY,
+    });
+    setLastPosition({
+      x: e.clientX,
+      y: e.clientY,
     });
     onSelect();
   };
@@ -146,10 +153,18 @@ export const GateComponent: React.FC<GateComponentProps> = ({
     if (!isDragging) return;
 
     const handleGlobalMouseMove = (e: MouseEvent) => {
-      onMove({
-        x: e.clientX - dragStart.x,
-        y: e.clientY - dragStart.y,
+      const dx = e.clientX - lastPosition.x;
+      const dy = e.clientY - lastPosition.y;
+
+      setLastPosition({
+        x: e.clientX,
+        y: e.clientY,
       });
+
+      onMove({
+        x: gate.position.x + dx,
+        y: gate.position.y + dy,
+      }, { dx, dy });
     };
 
     const handleGlobalMouseUp = () => {
@@ -163,7 +178,7 @@ export const GateComponent: React.FC<GateComponentProps> = ({
       document.removeEventListener('mousemove', handleGlobalMouseMove);
       document.removeEventListener('mouseup', handleGlobalMouseUp);
     };
-  }, [isDragging, dragStart, onMove]);
+  }, [isDragging, lastPosition, onMove, gate.position]);
 
   // 自动滚动到当前虚线位置
   React.useEffect(() => {

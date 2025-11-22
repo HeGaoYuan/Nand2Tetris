@@ -41,6 +41,7 @@ interface CircuitState {
 
 // LocalStorage 键名
 const CUSTOM_GATES_STORAGE_KEY = 'nand2tetris-custom-gates';
+const CIRCUIT_STATE_STORAGE_KEY = 'nand2tetris-circuit-state';
 
 // 从 LocalStorage 加载自定义芯片（递归重建 compute 函数）
 const loadCustomGatesFromStorage = (): GateDefinition[] => {
@@ -101,6 +102,32 @@ const saveCustomGatesToStorage = (customGates: GateDefinition[]) => {
     localStorage.setItem(CUSTOM_GATES_STORAGE_KEY, JSON.stringify(serializableGates));
   } catch (error) {
     console.error('保存自定义芯片失败:', error);
+  }
+};
+
+// 保存画布状态到 LocalStorage
+const saveCircuitStateToStorage = (circuit: Circuit) => {
+  try {
+    const serializableCircuit = {
+      gates: circuit.gates,
+      wires: circuit.wires,
+      clockStep: circuit.clockStep,
+    };
+    localStorage.setItem(CIRCUIT_STATE_STORAGE_KEY, JSON.stringify(serializableCircuit));
+  } catch (error) {
+    console.error('保存画布状态失败:', error);
+  }
+};
+
+// 从 LocalStorage 加载画布状态
+const loadCircuitStateFromStorage = (): Partial<Circuit> | null => {
+  try {
+    const saved = localStorage.getItem(CIRCUIT_STATE_STORAGE_KEY);
+    if (!saved) return null;
+    return JSON.parse(saved);
+  } catch (error) {
+    console.error('加载画布状态失败:', error);
+    return null;
   }
 };
 
@@ -184,11 +211,12 @@ const createComputeFunction = (
   };
 };
 
+const savedState = loadCircuitStateFromStorage();
 const initialCircuit: Circuit = {
-  gates: [],
-  wires: [],
+  gates: savedState?.gates || [],
+  wires: savedState?.wires || [],
   customGates: loadCustomGatesFromStorage(), // 从 LocalStorage 加载
-  clockStep: 0,
+  clockStep: savedState?.clockStep || 0,
 };
 
 export const useCircuitStore = create<CircuitState>((set, get) => ({
