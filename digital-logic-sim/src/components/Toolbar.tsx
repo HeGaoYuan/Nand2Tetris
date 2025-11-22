@@ -13,7 +13,8 @@ export const Toolbar: React.FC = () => {
     resetClock,
     isPlaying,
     playSpeed,
-    setPlaySpeed
+    setPlaySpeed,
+    clearCircuit
   } = useCircuitStore();
   const [showPackageDialog, setShowPackageDialog] = React.useState(false);
 
@@ -40,6 +41,28 @@ export const Toolbar: React.FC = () => {
         <div style={{ flex: 1 }} />
 
         <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            onClick={() => {
+              if (window.confirm('确定要清空画布吗？所有门和连线将被删除。')) {
+                clearCircuit();
+              }
+            }}
+            style={{
+              padding: '8px 16px',
+              backgroundColor: '#ef4444',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '14px',
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#dc2626'}
+            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#ef4444'}
+            title="清空画布中的所有门和连线"
+          >
+            🗑️ 清空画布
+          </button>
+
           <button
             onClick={() => setShowPackageDialog(true)}
             style={{

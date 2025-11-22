@@ -31,6 +31,7 @@ interface CircuitState {
   resetClock: () => void; // 重置时钟
   setPlaySpeed: (speed: number) => void; // 设置播放速度
   saveCustomGate: (name: string) => void;
+  clearCircuit: () => void; // 清空画布
 }
 
 const initialCircuit: Circuit = {
@@ -540,5 +541,20 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
       get().stopPlaying();
       get().startPlaying();
     }
+  },
+
+  clearCircuit: () => {
+    // 停止播放
+    get().stopPlaying();
+
+    // 清空所有门和连线，重置时钟，保留自定义门定义
+    set((state) => ({
+      circuit: {
+        ...initialCircuit,
+        customGates: state.circuit.customGates, // 保留自定义门
+      },
+      simulator: null,
+      selectedGateId: null,
+    }));
   },
 }));
