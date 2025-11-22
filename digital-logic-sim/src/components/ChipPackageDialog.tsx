@@ -1,11 +1,11 @@
 // 芯片封装对话框
 import React from 'react';
 import { validateCircuit, type ValidationResult } from '../engine/validator';
-import type { Circuit } from '../types/circuit';
+import type { Circuit, GateInstance } from '../types/circuit';
 
 interface ChipPackageDialogProps {
   circuit: Circuit;
-  onPackage: (chipName: string) => void;
+  onPackage: (chipName: string, inputPinOrder: GateInstance[], outputPinOrder: GateInstance[]) => void;
   onCancel: () => void;
 }
 
@@ -16,12 +16,54 @@ export const ChipPackageDialog: React.FC<ChipPackageDialogProps> = ({
 }) => {
   const [chipName, setChipName] = React.useState('');
   const [validation, setValidation] = React.useState<ValidationResult | null>(null);
+  const [inputPins, setInputPins] = React.useState<typeof validation.inputGates>([]);
+  const [outputPins, setOutputPins] = React.useState<typeof validation.outputGates>([]);
+  const [draggedIndex, setDraggedIndex] = React.useState<number | null>(null);
 
   React.useEffect(() => {
     // 自动验证电路
     const result = validateCircuit(circuit);
     setValidation(result);
+    // 初始化引脚顺序
+    setInputPins(result.inputGates);
+    setOutputPins(result.outputGates);
   }, [circuit]);
+
+  // 拖拽处理函数
+  const handleDragStart = (index: number, type: 'input' | 'output') => (e: React.DragEvent) => {
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('pinType', type);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDrop = (targetIndex: number, type: 'input' | 'output') => (e: React.DragEvent) => {
+    e.preventDefault();
+    const pinType = e.dataTransfer.getData('pinType');
+
+    if (pinType !== type || draggedIndex === null) return;
+
+    if (type === 'input') {
+      const newPins = [...inputPins];
+      const [removed] = newPins.splice(draggedIndex, 1);
+      newPins.splice(targetIndex, 0, removed);
+      setInputPins(newPins);
+    } else {
+      const newPins = [...outputPins];
+      const [removed] = newPins.splice(draggedIndex, 1);
+      newPins.splice(targetIndex, 0, removed);
+      setOutputPins(newPins);
+    }
+    setDraggedIndex(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedIndex(null);
+  };
 
   const handlePackage = () => {
     if (!chipName.trim()) {
@@ -34,7 +76,7 @@ export const ChipPackageDialog: React.FC<ChipPackageDialogProps> = ({
       return;
     }
 
-    onPackage(chipName.trim());
+    onPackage(chipName.trim(), inputPins, outputPins);
   };
 
   return (
@@ -95,7 +137,7 @@ export const ChipPackageDialog: React.FC<ChipPackageDialogProps> = ({
               电路验证结果
             </h3>
 
-            {/* 统计信息 */}
+            {/* 引脚排序 */}
             <div style={{
               padding: '12px',
               backgroundColor: '#f3f4f6',
@@ -103,22 +145,74 @@ export const ChipPackageDialog: React.FC<ChipPackageDialogProps> = ({
               marginBottom: '12px',
             }}>
               <div style={{ fontSize: '14px', color: '#374151', marginBottom: '8px' }}>
-                <strong>输入引脚 ({validation.inputGates.length}):</strong>
+                <strong>输入引脚 ({inputPins.length}):</strong>
+                <span style={{ fontSize: '12px', color: '#6b7280', marginLeft: '8px' }}>
+                  (拖拽调整顺序)
+                </span>
               </div>
-              <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '12px', paddingLeft: '16px' }}>
-                {validation.inputGates.map((gate, i) => (
-                  <div key={gate.id} style={{ marginBottom: '4px' }}>
-                    • {gate.label || `in${i}`}
+              <div style={{ marginBottom: '12px' }}>
+                {inputPins.map((gate, i) => (
+                  <div
+                    key={gate.id}
+                    draggable
+                    onDragStart={handleDragStart(i, 'input')}
+                    onDragOver={handleDragOver}
+                    onDrop={handleDrop(i, 'input')}
+                    onDragEnd={handleDragEnd}
+                    style={{
+                      padding: '8px 12px',
+                      marginBottom: '4px',
+                      backgroundColor: draggedIndex === i ? '#dbeafe' : 'white',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '4px',
+                      cursor: 'grab',
+                      fontSize: '12px',
+                      color: '#374151',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    <span style={{ color: '#9ca3af' }}>☰</span>
+                    <span style={{ fontWeight: '500' }}>{i}:</span>
+                    {gate.label || `in${i}`}
                   </div>
                 ))}
               </div>
               <div style={{ fontSize: '14px', color: '#374151', marginBottom: '8px' }}>
-                <strong>输出引脚 ({validation.outputGates.length}):</strong>
+                <strong>输出引脚 ({outputPins.length}):</strong>
+                <span style={{ fontSize: '12px', color: '#6b7280', marginLeft: '8px' }}>
+                  (拖拽调整顺序)
+                </span>
               </div>
-              <div style={{ fontSize: '12px', color: '#6b7280', paddingLeft: '16px' }}>
-                {validation.outputGates.map((gate, i) => (
-                  <div key={gate.id} style={{ marginBottom: '4px' }}>
-                    • {gate.label || `out${i}`}
+              <div>
+                {outputPins.map((gate, i) => (
+                  <div
+                    key={gate.id}
+                    draggable
+                    onDragStart={handleDragStart(i, 'output')}
+                    onDragOver={handleDragOver}
+                    onDrop={handleDrop(i, 'output')}
+                    onDragEnd={handleDragEnd}
+                    style={{
+                      padding: '8px 12px',
+                      marginBottom: '4px',
+                      backgroundColor: draggedIndex === i ? '#dbeafe' : 'white',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '4px',
+                      cursor: 'grab',
+                      fontSize: '12px',
+                      color: '#374151',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    <span style={{ color: '#9ca3af' }}>☰</span>
+                    <span style={{ fontWeight: '500' }}>{i}:</span>
+                    {gate.label || `out${i}`}
                   </div>
                 ))}
               </div>

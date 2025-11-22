@@ -22,6 +22,7 @@ interface CircuitState {
   setGateInput: (gateId: string, inputIndex: number, value: 0 | 1) => void;
   updateGateLabel: (gateId: string, label: string) => void;
   updateGateSequence: (gateId: string, sequence: string) => void;
+  rotateGate: (gateId: string) => void; // 旋转门90度
   runSimulation: () => void;
   stepSimulation: () => void;
   resetSimulation: () => void;
@@ -30,7 +31,7 @@ interface CircuitState {
   stopPlaying: () => void; // 停止自动播放
   resetClock: () => void; // 重置时钟
   setPlaySpeed: (speed: number) => void; // 设置播放速度
-  saveCustomGate: (name: string) => void;
+  saveCustomGate: (name: string, inputPinOrder?: GateInstance[], outputPinOrder?: GateInstance[]) => void;
   clearCircuit: () => void; // 清空画布
   exportCustomGates: () => string; // 导出自定义芯片为 JSON 字符串
   importCustomGates: (jsonData: string, mode: 'merge' | 'replace') => boolean; // 导入自定义芯片
@@ -346,6 +347,22 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
     get().resetClock();
   },
 
+  rotateGate: (gateId: string) => {
+    set((state) => ({
+      circuit: {
+        ...state.circuit,
+        gates: state.circuit.gates.map((g) => {
+          if (g.id === gateId) {
+            const currentRotation = g.rotation || 0;
+            const newRotation = (currentRotation + 90) % 360;
+            return { ...g, rotation: newRotation };
+          }
+          return g;
+        }),
+      },
+    }));
+  },
+
   runSimulation: () => {
     const { circuit } = get();
     let gates = [...circuit.gates];
@@ -434,24 +451,28 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
     set((state) => ({ circuit: { ...state.circuit } }));
   },
 
-  saveCustomGate: (name: string) => {
+  saveCustomGate: (name: string, inputPinOrder?: GateInstance[], outputPinOrder?: GateInstance[]) => {
     const { circuit } = get();
 
-    // 找出所有 INPUT 和 OUTPUT 门
-    const inputGates = circuit.gates.filter(g => g.gateDefId === 'input');
-    const outputGates = circuit.gates.filter(g => g.gateDefId === 'output');
+    // 如果没有提供自定义顺序，使用默认顺序（从电路中查找）
+    const defaultInputGates = circuit.gates.filter(g => g.gateDefId === 'input');
+    const defaultOutputGates = circuit.gates.filter(g => g.gateDefId === 'output');
+
+    // 使用自定义顺序，如果没有提供则使用默认顺序
+    const inputGates = inputPinOrder || defaultInputGates;
+    const outputGates = outputPinOrder || defaultOutputGates;
 
     if (inputGates.length === 0 || outputGates.length === 0) {
       console.error('需要至少一个INPUT和OUTPUT门');
       return;
     }
 
-    // 保存内部电路结构（用于序列化）
+    // 保存内部电路结构（用于序列化），使用自定义的引脚顺序
     const internalCircuit = {
       gates: circuit.gates.map(g => ({ ...g })), // 深拷贝
       wires: circuit.wires.map(w => ({ ...w })), // 深拷贝
-      inputGateIds: inputGates.map(g => g.id),
-      outputGateIds: outputGates.map(g => g.id),
+      inputGateIds: inputGates.map(g => g.id),  // 使用自定义顺序
+      outputGateIds: outputGates.map(g => g.id), // 使用自定义顺序
     };
 
     // 创建新的门定义，使用自定义标签作为引脚名称

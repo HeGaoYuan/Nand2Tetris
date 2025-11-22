@@ -32,6 +32,7 @@ export interface GateInstance {
   outputs: Pin[];
   label?: string; // 自定义标签，用于 INPUT/OUTPUT 门的命名
   sequence?: string; // INPUT 门的信号序列，如 "10011010"
+  rotation?: number; // 旋转角度：0, 90, 180, 270（度）
 }
 
 export interface Wire {

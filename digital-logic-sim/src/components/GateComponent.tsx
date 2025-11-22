@@ -14,6 +14,10 @@ interface GateComponentProps {
   onInputChange: (inputIndex: number, value: 0 | 1) => void;
   onContextMenu: (e: React.MouseEvent) => void;
   onPinClick?: (gateId: string, pinId: string, isOutput: boolean) => void;
+  highlightedPins?: {  // 高亮的引脚ID列表
+    inputPinIds?: string[];
+    outputPinIds?: string[];
+  };
 }
 
 export const GateComponent: React.FC<GateComponentProps> = ({
@@ -24,6 +28,7 @@ export const GateComponent: React.FC<GateComponentProps> = ({
   onInputChange,
   onContextMenu,
   onPinClick,
+  highlightedPins,
 }) => {
   const [isDragging, setIsDragging] = React.useState(false);
   const [dragStart, setDragStart] = React.useState({ x: 0, y: 0 });
@@ -32,13 +37,58 @@ export const GateComponent: React.FC<GateComponentProps> = ({
   const [isEditingSequence, setIsEditingSequence] = React.useState(false);
   const [showInternalView, setShowInternalView] = React.useState(false);
   const [contextMenu, setContextMenu] = React.useState<{ x: number; y: number } | null>(null);
-  const { circuit, updateGateLabel, updateGateSequence } = useCircuitStore();
+  const { circuit, updateGateLabel, updateGateSequence, rotateGate } = useCircuitStore();
   const waveformContainerRef = React.useRef<HTMLDivElement>(null);
 
   const gateDef = [...ALL_GATES, ...circuit.customGates].find((g) => g.id === gate.gateDefId);
   if (!gateDef) return null;
 
   const isIOGate = gate.gateDefId === 'input' || gate.gateDefId === 'output' || gate.gateDefId === 'clock';
+  const rotation = gate.rotation || 0;
+  const counterRotation = -rotation; // 反向旋转，保持文字和视觉元素直立
+
+  // 计算旋转后的连接点位置
+  // 根据旋转角度，连接点的位置会变化
+  // 0°: 输入在左，输出在右
+  // 90°: 输入在上，输出在下
+  // 180°: 输入在右，输出在左
+  // 270°: 输入在下，输出在上
+  const getPinPosition = (isOutput: boolean, pinIndex: number, totalPins: number) => {
+    const baseOffset = -22; // 连接点相对于门的基础偏移
+
+    switch (rotation) {
+      case 90:
+        return {
+          left: 'auto',
+          right: 'auto',
+          top: isOutput ? 'auto' : `${baseOffset}px`,
+          bottom: isOutput ? `${baseOffset}px` : 'auto',
+          transform: `translateX(calc(${pinIndex} * 32px))`, // 水平分布引脚
+        };
+      case 180:
+        return {
+          left: isOutput ? `${baseOffset}px` : 'auto',
+          right: isOutput ? 'auto' : `${baseOffset}px`,
+          top: 'auto',
+          bottom: 'auto',
+        };
+      case 270:
+        return {
+          left: 'auto',
+          right: 'auto',
+          top: isOutput ? `${baseOffset}px` : 'auto',
+          bottom: isOutput ? 'auto' : `${baseOffset}px`,
+          transform: `translateX(calc(${pinIndex} * 32px))`,
+        };
+      default: // 0°
+        return {
+          left: isOutput ? 'auto' : `${baseOffset}px`,
+          right: isOutput ? `${baseOffset}px` : 'auto',
+          top: 'auto',
+          bottom: 'auto',
+        };
+    }
+  };
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -79,13 +129,7 @@ export const GateComponent: React.FC<GateComponentProps> = ({
     e.preventDefault();
     e.stopPropagation();
 
-    // 只有自定义芯片才显示右键菜单
-    const isCustomGate = gateDef.type === 'custom' && gateDef.internalCircuit;
-    if (!isCustomGate) {
-      onContextMenu(e);
-      return;
-    }
-
+    // 所有门都显示右键菜单（用于旋转）
     setContextMenu({ x: e.clientX, y: e.clientY });
   };
 
@@ -148,21 +192,97 @@ export const GateComponent: React.FC<GateComponentProps> = ({
   // 特殊渲染 INPUT/OUTPUT 门
   if (isIOGate) {
     return (
-      <div
-        style={{
-          position: 'absolute',
-          left: `${gate.position.x}px`,
-          top: `${gate.position.y}px`,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: '8px',
-          cursor: isDragging ? 'grabbing' : 'grab',
-          userSelect: 'none',
-        }}
-        onMouseDown={handleMouseDown}
-        onContextMenu={handleContextMenuClick}
-      >
+      <>
+        {/* IO门的右键菜单 */}
+        {contextMenu && (
+          <div
+            style={{
+              position: 'fixed',
+              left: `${contextMenu.x}px`,
+              top: `${contextMenu.y}px`,
+              backgroundColor: 'white',
+              border: '1px solid #d1d5db',
+              borderRadius: '6px',
+              boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+              zIndex: 10000,
+              minWidth: '180px',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 旋转90° */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                rotateGate(gate.id);
+                setContextMenu(null);
+              }}
+              style={{
+                width: '100%',
+                padding: '10px 16px',
+                backgroundColor: 'transparent',
+                border: 'none',
+                borderBottom: '1px solid #e5e7eb',
+                textAlign: 'left',
+                cursor: 'pointer',
+                fontSize: '14px',
+                color: '#1f2937',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f3f4f6')}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+            >
+              🔄 旋转 90°
+            </button>
+
+            {/* 删除 */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                const { removeGate } = useCircuitStore.getState();
+                removeGate(gate.id);
+                setContextMenu(null);
+              }}
+              style={{
+                width: '100%',
+                padding: '10px 16px',
+                backgroundColor: 'transparent',
+                border: 'none',
+                textAlign: 'left',
+                cursor: 'pointer',
+                fontSize: '14px',
+                color: '#ef4444',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#fee2e2')}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+            >
+              🗑️ 删除
+            </button>
+          </div>
+        )}
+
+        <div
+          style={{
+            position: 'absolute',
+            left: `${gate.position.x}px`,
+            top: `${gate.position.y}px`,
+            display: 'flex',
+            flexDirection: rotation === 90 || rotation === 270 ? 'row' : 'column',
+            alignItems: 'center',
+            gap: '8px',
+            cursor: isDragging ? 'grabbing' : 'grab',
+            userSelect: 'none',
+            transform: `rotate(${rotation}deg)`,
+            transformOrigin: 'center center',
+            transition: 'transform 0.3s ease',
+          }}
+          onMouseDown={handleMouseDown}
+          onContextMenu={handleContextMenuClick}
+        >
         {/* 图标区域 */}
         <div
           style={{
@@ -177,6 +297,8 @@ export const GateComponent: React.FC<GateComponentProps> = ({
             boxShadow: selected ? '0 10px 15px -3px rgba(0, 0, 0, 0.1)' : '0 2px 4px rgba(0, 0, 0, 0.1)',
             transition: 'all 0.2s',
             cursor: gate.gateDefId === 'input' ? 'pointer' : 'default',
+            transform: `rotate(${counterRotation}deg)`,
+            transformOrigin: 'center center',
           }}
           onClick={(e) => {
             if (gate.gateDefId === 'input' && !gate.sequence) {
@@ -320,6 +442,8 @@ export const GateComponent: React.FC<GateComponentProps> = ({
             borderRadius: '4px',
             fontSize: '12px',
             cursor: isEditingLabel ? 'text' : 'pointer',
+            transform: `rotate(${counterRotation}deg)`,
+            transformOrigin: 'center center',
           }}
           onDoubleClick={handleLabelDoubleClick}
           title={isEditingLabel ? '' : '双击编辑标签'}
@@ -352,7 +476,11 @@ export const GateComponent: React.FC<GateComponentProps> = ({
 
         {/* INPUT门和CLOCK门：序列编辑按钮 */}
         {(gate.gateDefId === 'input' || gate.gateDefId === 'clock') && (
-          <div style={{ width: '100px' }}>
+          <div style={{
+            width: '100px',
+            transform: `rotate(${counterRotation}deg)`,
+            transformOrigin: 'center center',
+          }}>
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -588,6 +716,9 @@ export const GateComponent: React.FC<GateComponentProps> = ({
         {gate.gateDefId === 'clock' ? (
           // CLOCK门：只有右侧输出连接点
           <div
+            data-pin-id={gate.outputs[0].id}
+            data-gate-id={gate.id}
+            data-pin-type="output"
             onClick={(e) => {
               e.stopPropagation();
               if (onPinClick) {
@@ -603,18 +734,26 @@ export const GateComponent: React.FC<GateComponentProps> = ({
               height: '16px',
               borderRadius: '50%',
               backgroundColor: gate.outputs[0]?.value === 1 ? '#10b981' : '#6b7280',
-              border: '3px solid white',
+              border: highlightedPins?.outputPinIds?.includes(gate.outputs[0].id)
+                ? '3px solid #3b82f6'
+                : '3px solid white',
               cursor: 'pointer',
-              boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
+              boxShadow: highlightedPins?.outputPinIds?.includes(gate.outputs[0].id)
+                ? '0 0 8px 2px rgba(59, 130, 246, 0.5)'
+                : '0 2px 4px rgba(0, 0, 0, 0.2)',
               transition: 'all 0.2s',
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'scale(1.3)';
-              e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.3)';
+              e.currentTarget.style.boxShadow = highlightedPins?.outputPinIds?.includes(gate.outputs[0].id)
+                ? '0 0 12px 3px rgba(59, 130, 246, 0.7)'
+                : '0 4px 8px rgba(0, 0, 0, 0.3)';
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'scale(1)';
-              e.currentTarget.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.2)';
+              e.currentTarget.style.boxShadow = highlightedPins?.outputPinIds?.includes(gate.outputs[0].id)
+                ? '0 0 8px 2px rgba(59, 130, 246, 0.5)'
+                : '0 2px 4px rgba(0, 0, 0, 0.2)';
             }}
           />
         ) : gate.gateDefId === 'input' ? (
@@ -622,6 +761,9 @@ export const GateComponent: React.FC<GateComponentProps> = ({
           <>
             {/* 左侧输入连接点 */}
             <div
+              data-pin-id={gate.inputs[0].id}
+              data-gate-id={gate.id}
+              data-pin-type="input"
               onClick={(e) => {
                 e.stopPropagation();
                 if (onPinClick) {
@@ -637,22 +779,33 @@ export const GateComponent: React.FC<GateComponentProps> = ({
                 height: '16px',
                 borderRadius: '50%',
                 backgroundColor: gate.inputs[0]?.value === 1 ? '#10b981' : '#6b7280',
-                border: '3px solid white',
+                border: highlightedPins?.inputPinIds?.includes(gate.inputs[0].id)
+                  ? '3px solid #3b82f6'  // 高亮时使用蓝色边框
+                  : '3px solid white',
                 cursor: 'pointer',
-                boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
+                boxShadow: highlightedPins?.inputPinIds?.includes(gate.inputs[0].id)
+                  ? '0 0 8px 2px rgba(59, 130, 246, 0.5)'  // 高亮时添加蓝色光晕
+                  : '0 2px 4px rgba(0, 0, 0, 0.2)',
                 transition: 'all 0.2s',
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.transform = 'scale(1.3)';
-                e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.3)';
+                e.currentTarget.style.boxShadow = highlightedPins?.inputPinIds?.includes(gate.inputs[0].id)
+                  ? '0 0 12px 3px rgba(59, 130, 246, 0.7)'
+                  : '0 4px 8px rgba(0, 0, 0, 0.3)';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.transform = 'scale(1)';
-                e.currentTarget.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.2)';
+                e.currentTarget.style.boxShadow = highlightedPins?.inputPinIds?.includes(gate.inputs[0].id)
+                  ? '0 0 8px 2px rgba(59, 130, 246, 0.5)'
+                  : '0 2px 4px rgba(0, 0, 0, 0.2)';
               }}
             />
             {/* 右侧输出连接点 */}
             <div
+              data-pin-id={gate.outputs[0].id}
+              data-gate-id={gate.id}
+              data-pin-type="output"
               onClick={(e) => {
                 e.stopPropagation();
                 if (onPinClick) {
@@ -668,24 +821,35 @@ export const GateComponent: React.FC<GateComponentProps> = ({
                 height: '16px',
                 borderRadius: '50%',
                 backgroundColor: gate.outputs[0]?.value === 1 ? '#10b981' : '#6b7280',
-                border: '3px solid white',
+                border: highlightedPins?.outputPinIds?.includes(gate.outputs[0].id)
+                  ? '3px solid #3b82f6'
+                  : '3px solid white',
                 cursor: 'pointer',
-                boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
+                boxShadow: highlightedPins?.outputPinIds?.includes(gate.outputs[0].id)
+                  ? '0 0 8px 2px rgba(59, 130, 246, 0.5)'
+                  : '0 2px 4px rgba(0, 0, 0, 0.2)',
                 transition: 'all 0.2s',
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.transform = 'scale(1.3)';
-                e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.3)';
+                e.currentTarget.style.boxShadow = highlightedPins?.outputPinIds?.includes(gate.outputs[0].id)
+                  ? '0 0 12px 3px rgba(59, 130, 246, 0.7)'
+                  : '0 4px 8px rgba(0, 0, 0, 0.3)';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.transform = 'scale(1)';
-                e.currentTarget.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.2)';
+                e.currentTarget.style.boxShadow = highlightedPins?.outputPinIds?.includes(gate.outputs[0].id)
+                  ? '0 0 8px 2px rgba(59, 130, 246, 0.5)'
+                  : '0 2px 4px rgba(0, 0, 0, 0.2)';
               }}
             />
           </>
         ) : (
           // OUTPUT门：只有左侧输入连接点
           <div
+            data-pin-id={gate.inputs[0].id}
+            data-gate-id={gate.id}
+            data-pin-type="input"
             onClick={(e) => {
               e.stopPropagation();
               if (onPinClick) {
@@ -701,22 +865,31 @@ export const GateComponent: React.FC<GateComponentProps> = ({
               height: '16px',
               borderRadius: '50%',
               backgroundColor: gate.inputs[0]?.value === 1 ? '#10b981' : '#6b7280',
-              border: '3px solid white',
+              border: highlightedPins?.inputPinIds?.includes(gate.inputs[0].id)
+                ? '3px solid #3b82f6'
+                : '3px solid white',
               cursor: 'pointer',
-              boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
+              boxShadow: highlightedPins?.inputPinIds?.includes(gate.inputs[0].id)
+                ? '0 0 8px 2px rgba(59, 130, 246, 0.5)'
+                : '0 2px 4px rgba(0, 0, 0, 0.2)',
               transition: 'all 0.2s',
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'scale(1.3)';
-              e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.3)';
+              e.currentTarget.style.boxShadow = highlightedPins?.inputPinIds?.includes(gate.inputs[0].id)
+                ? '0 0 12px 3px rgba(59, 130, 246, 0.7)'
+                : '0 4px 8px rgba(0, 0, 0, 0.3)';
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'scale(1)';
-              e.currentTarget.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.2)';
+              e.currentTarget.style.boxShadow = highlightedPins?.inputPinIds?.includes(gate.inputs[0].id)
+                ? '0 0 8px 2px rgba(59, 130, 246, 0.5)'
+                : '0 2px 4px rgba(0, 0, 0, 0.2)';
             }}
           />
         )}
       </div>
+      </>
     );
   }
 
@@ -734,15 +907,45 @@ export const GateComponent: React.FC<GateComponentProps> = ({
             border: '1px solid #d1d5db',
             borderRadius: '6px',
             boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-            zIndex: 1000,
+            zIndex: 10000,
             minWidth: '180px',
           }}
           onClick={(e) => e.stopPropagation()}
         >
+          {/* 查看内部实现 - 仅自定义芯片显示 */}
+          {gateDef.type === 'custom' && gateDef.internalCircuit && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowInternalView(true);
+                setContextMenu(null);
+              }}
+              style={{
+                width: '100%',
+                padding: '10px 16px',
+                backgroundColor: 'transparent',
+                border: 'none',
+                borderBottom: '1px solid #e5e7eb',
+                textAlign: 'left',
+                cursor: 'pointer',
+                fontSize: '14px',
+                color: '#1f2937',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f3f4f6')}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+            >
+              🔍 查看内部实现
+            </button>
+          )}
+
+          {/* 旋转90° - 所有门都可旋转 */}
           <button
             onClick={(e) => {
               e.stopPropagation();
-              setShowInternalView(true);
+              rotateGate(gate.id);
               setContextMenu(null);
             }}
             style={{
@@ -750,6 +953,7 @@ export const GateComponent: React.FC<GateComponentProps> = ({
               padding: '10px 16px',
               backgroundColor: 'transparent',
               border: 'none',
+              borderBottom: gateDef.type === 'custom' ? '1px solid #e5e7eb' : 'none',
               textAlign: 'left',
               cursor: 'pointer',
               fontSize: '14px',
@@ -761,7 +965,34 @@ export const GateComponent: React.FC<GateComponentProps> = ({
             onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f3f4f6')}
             onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
           >
-            🔍 查看内部实现
+            🔄 旋转 90°
+          </button>
+
+          {/* 删除 - 所有门都可删除 */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              const { removeGate } = useCircuitStore.getState();
+              removeGate(gate.id);
+              setContextMenu(null);
+            }}
+            style={{
+              width: '100%',
+              padding: '10px 16px',
+              backgroundColor: 'transparent',
+              border: 'none',
+              textAlign: 'left',
+              cursor: 'pointer',
+              fontSize: '14px',
+              color: '#ef4444',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#fee2e2')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+          >
+            🗑️ 删除
           </button>
         </div>
       )}
@@ -792,6 +1023,9 @@ export const GateComponent: React.FC<GateComponentProps> = ({
         display: 'flex',
         gap: '16px',
         alignItems: 'center',
+        transform: `rotate(${rotation}deg)`,
+        transformOrigin: 'center center',
+        transition: 'transform 0.3s ease',
       }}
       onMouseDown={handleMouseDown}
       onContextMenu={handleContextMenuClick}
@@ -799,9 +1033,17 @@ export const GateComponent: React.FC<GateComponentProps> = ({
       {/* 左侧：输入引脚 */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', position: 'relative' }}>
         {gate.inputs.map((pin, index) => (
-          <div key={pin.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}>
+          <div key={pin.id} style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            position: 'relative',
+          }}>
             {/* 连接点 */}
             <div
+              data-pin-id={pin.id}
+              data-gate-id={gate.id}
+              data-pin-type="input"
               onClick={(e) => {
                 e.stopPropagation();
                 if (onPinClick) {
@@ -816,18 +1058,26 @@ export const GateComponent: React.FC<GateComponentProps> = ({
                 height: '12px',
                 borderRadius: '50%',
                 backgroundColor: pin.value === 1 ? '#10b981' : '#6b7280',
-                border: '2px solid white',
+                border: highlightedPins?.inputPinIds?.includes(pin.id)
+                  ? '2px solid #3b82f6'
+                  : '2px solid white',
                 cursor: 'pointer',
-                boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
+                boxShadow: highlightedPins?.inputPinIds?.includes(pin.id)
+                  ? '0 0 6px 2px rgba(59, 130, 246, 0.5)'
+                  : '0 2px 4px rgba(0, 0, 0, 0.2)',
                 transition: 'all 0.2s'
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.transform = 'scale(1.3)';
-                e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.3)';
+                e.currentTarget.style.boxShadow = highlightedPins?.inputPinIds?.includes(pin.id)
+                  ? '0 0 10px 3px rgba(59, 130, 246, 0.7)'
+                  : '0 4px 8px rgba(0, 0, 0, 0.3)';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.transform = 'scale(1)';
-                e.currentTarget.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.2)';
+                e.currentTarget.style.boxShadow = highlightedPins?.inputPinIds?.includes(pin.id)
+                  ? '0 0 6px 2px rgba(59, 130, 246, 0.5)'
+                  : '0 2px 4px rgba(0, 0, 0, 0.2)';
               }}
             />
             <button
@@ -840,7 +1090,8 @@ export const GateComponent: React.FC<GateComponentProps> = ({
                 color: pin.value === 1 ? 'white' : 'black',
                 cursor: 'pointer',
                 fontSize: '12px',
-                fontWeight: 'bold'
+                fontWeight: 'bold',
+                transform: `rotate(${counterRotation}deg)`,
               }}
               onClick={(e) => {
                 e.stopPropagation();
@@ -850,7 +1101,12 @@ export const GateComponent: React.FC<GateComponentProps> = ({
             >
               {pin.value}
             </button>
-            <span style={{ fontSize: '13px', color: '#6b7280' }}>{pin.name}</span>
+            <span style={{
+              fontSize: '13px',
+              color: '#6b7280',
+              transform: `rotate(${counterRotation}deg)`,
+              display: 'inline-block',
+            }}>{pin.name}</span>
           </div>
         ))}
       </div>
@@ -862,6 +1118,8 @@ export const GateComponent: React.FC<GateComponentProps> = ({
         fontSize: '16px',
         padding: '0 12px',
         minWidth: '60px',
+        transform: `rotate(${counterRotation}deg)`,
+        transformOrigin: 'center center',
       }}>
         {gateDef.name}
       </div>
@@ -869,8 +1127,18 @@ export const GateComponent: React.FC<GateComponentProps> = ({
       {/* 右侧：输出引脚 */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', position: 'relative' }}>
         {gate.outputs.map((pin) => (
-          <div key={pin.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}>
-            <span style={{ fontSize: '13px', color: '#6b7280' }}>{pin.name}</span>
+          <div key={pin.id} style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            position: 'relative',
+          }}>
+            <span style={{
+              fontSize: '13px',
+              color: '#6b7280',
+              transform: `rotate(${counterRotation}deg)`,
+              display: 'inline-block',
+            }}>{pin.name}</span>
             <div
               style={{
                 width: '24px',
@@ -883,13 +1151,17 @@ export const GateComponent: React.FC<GateComponentProps> = ({
                 alignItems: 'center',
                 justifyContent: 'center',
                 fontSize: '12px',
-                fontWeight: 'bold'
+                fontWeight: 'bold',
+                transform: `rotate(${counterRotation}deg)`,
               }}
             >
               {pin.value}
             </div>
             {/* 连接点 */}
             <div
+              data-pin-id={pin.id}
+              data-gate-id={gate.id}
+              data-pin-type="output"
               onClick={(e) => {
                 e.stopPropagation();
                 if (onPinClick) {
@@ -904,18 +1176,26 @@ export const GateComponent: React.FC<GateComponentProps> = ({
                 height: '12px',
                 borderRadius: '50%',
                 backgroundColor: pin.value === 1 ? '#10b981' : '#6b7280',
-                border: '2px solid white',
+                border: highlightedPins?.outputPinIds?.includes(pin.id)
+                  ? '2px solid #3b82f6'
+                  : '2px solid white',
                 cursor: 'pointer',
-                boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
+                boxShadow: highlightedPins?.outputPinIds?.includes(pin.id)
+                  ? '0 0 6px 2px rgba(59, 130, 246, 0.5)'
+                  : '0 2px 4px rgba(0, 0, 0, 0.2)',
                 transition: 'all 0.2s'
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.transform = 'scale(1.3)';
-                e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.3)';
+                e.currentTarget.style.boxShadow = highlightedPins?.outputPinIds?.includes(pin.id)
+                  ? '0 0 10px 3px rgba(59, 130, 246, 0.7)'
+                  : '0 4px 8px rgba(0, 0, 0, 0.3)';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.transform = 'scale(1)';
-                e.currentTarget.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.2)';
+                e.currentTarget.style.boxShadow = highlightedPins?.outputPinIds?.includes(pin.id)
+                  ? '0 0 6px 2px rgba(59, 130, 246, 0.5)'
+                  : '0 2px 4px rgba(0, 0, 0, 0.2)';
               }}
             />
           </div>

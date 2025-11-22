@@ -3,6 +3,7 @@ import React from 'react';
 import { useCircuitStore } from '../store/circuitStore';
 import { ChipPackageDialog } from './ChipPackageDialog';
 import { ChipManagement } from './ChipManagement';
+import type { GateInstance } from '../types/circuit';
 
 export const Toolbar: React.FC = () => {
   const {
@@ -19,8 +20,8 @@ export const Toolbar: React.FC = () => {
   } = useCircuitStore();
   const [showPackageDialog, setShowPackageDialog] = React.useState(false);
 
-  const handlePackage = (chipName: string) => {
-    saveCustomGate(chipName);
+  const handlePackage = (chipName: string, inputPinOrder: GateInstance[], outputPinOrder: GateInstance[]) => {
+    saveCustomGate(chipName, inputPinOrder, outputPinOrder);
     setShowPackageDialog(false);
   };
 
